@@ -167,13 +167,13 @@ function earth(t,cx,cy,R,a){
   c.beginPath();c.arc(cx,cy,R,0,7);c.stroke();c.restore();
 }
 function draw(t,dt){
-  const w=fx.width,h=fx.height,warp=state==='warp',el=t-wt0,p=warp?Math.min(1,el/3000):0;
+  const w=fx.width,h=fx.height,warp=state==='warp',el=Math.max(0,t-wt0),p=warp?Math.min(1,el/3000):0;
   const ramp=!warp||showEarth?1:Math.min(1,el/700);
   const sp=warp?(.0008+Math.pow(p,2.5)*.045)*dt/16:0,TL=warp?.015+p*.3:0;
   c.clearRect(0,0,w,h);c.fillStyle=`rgba(2,4,12,${ramp})`;c.fillRect(0,0,w,h);
   for(const s of ST){
     const pz=Math.min(s.z+TL,4),px=s.x/pz*w/2+w/2,py=s.y/pz*h/2+h/2;
-    s.z-=sp;if(s.z<=.03){s.z=1;s.x=rnd(-1,1);s.y=rnd(-1,1)}
+    s.z-=sp;if(!(s.z>.03)){s.z=1;s.x=rnd(-1,1);s.y=rnd(-1,1)}
     const X=s.x/s.z*w/2+w/2,Y=s.y/s.z*h/2+h/2,k=1-s.z;
     if(X<0||X>w||Y<0||Y>h)continue;
     if(warp){c.strokeStyle=`rgba(${190+60*p|0},${220-20*p|0},255,${.35+.65*k})`;c.lineWidth=.8+k*2.2*(1+p);
