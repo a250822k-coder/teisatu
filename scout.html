@@ -37,10 +37,12 @@ background:rgba(2,6,16,.84);backdrop-filter:blur(10px);border:1px solid rgba(207
 .panel label{display:block;margin:14px 0 2px;color:var(--dim);font-size:12px}
 .panel input[type=range],.panel select{width:100%;accent-color:var(--amber)}
 .panel select{background:#050a18;color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:6px;padding:5px}
+.panel .chk{display:flex;gap:8px;align-items:center;color:var(--ice);font-size:13px}.panel .chk input{accent-color:var(--amber)}
 .item{border-top:1px solid rgba(207,230,255,.12);padding:10px 0;font-size:12px}
 .item div{display:flex;gap:6px;margin-top:6px}.item button{font-size:12px;padding:.15em .8em}
 .item a{color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:99px;padding:.15em .8em;text-decoration:none}
-#toast{position:fixed;left:50%;top:7vh;transform:translateX(-50%);background:rgba(2,6,16,.8);border:1px solid rgba(255,184,107,.5);
+#place{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);color:rgba(207,230,255,.6);font-size:15px;letter-spacing:.3em;padding-left:.3em;text-shadow:0 0 8px #000;z-index:4;pointer-events:none;text-align:center;white-space:nowrap}
+#toast{position:fixed;left:50%;top:calc(56px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:rgba(2,6,16,.8);border:1px solid rgba(255,184,107,.5);
 padding:.5em 1.4em;border-radius:99px;opacity:0;transition:opacity .5s;pointer-events:none;z-index:9;color:var(--amber)}
 #key{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--void);z-index:10;padding:20px}
 #key div{max-width:460px}#key h1{font-weight:200;letter-spacing:.4em;font-size:22px;margin:0 0 1em}
@@ -59,6 +61,7 @@ border-radius:8px;color:var(--ice);font:inherit}
   <button id="go">ワープ</button>
 </div>
 
+<div id="place" class="ui"></div>
 <div id="hud" class="ui"></div>
 <div id="bar" class="ui" hidden>
   <button id="bWarp">ワープ (W)</button><button id="bSave">保存 (S)</button><button id="bList">記録</button>
@@ -73,6 +76,11 @@ border-radius:8px;color:var(--ice);font:inherit}
   <select id="sStep"><option value="8">とてもゆっくり</option><option value="5">ゆっくり</option><option value="3">ふつう</option></select>
   <label>1日の着地回数の上限：<span id="vLim"></span> 回（今日 <span id="vUse"></span> 回）</label>
   <input id="rLim" type="range" min="10" max="500" step="10">
+  <label class="chk"><input type="checkbox" id="cPlace"> 画面上部に地名を表示する</label>
+  <label>全体の音量</label><input type="range" data-vol="master" min="0" max="100">
+  <label>環境音の音量</label><input type="range" data-vol="env" min="0" max="100">
+  <label>BGMの音量</label><input type="range" data-vol="bgm" min="0" max="100">
+  <label>ワープ音の音量（離すと試聴）</label><input type="range" data-vol="warp" min="0" max="100">
   <label>Google Maps APIキー</label>
   <button id="bKey">キーを変更する</button>
 </section>
@@ -99,7 +107,7 @@ const rnd=(a,b)=>a+Math.random()*(b-a),sleep=ms=>new Promise(r=>setTimeout(r,ms)
 const ad=(a,b)=>((a-b+540)%360)-180;
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}};
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
-let cfg=Object.assign({min:7,step:5,sound:true,limit:150},load(CK,{})),saves=load(SK,[]);
+let cfg=Object.assign({min:7,step:5,sound:true,limit:150,place:true,vol:{master:.7,env:.8,bgm:.8,warp:.35}},load(CK,{})),saves=load(SK,[]);
 const today=()=>new Date().toLocaleDateString('sv');
 function usage(){const u=load('scout.usage',{});return u.d===today()?u:{d:today(),n:0}}
 function bump(){const u=usage();u.n++;store('scout.usage',u);return u.n}
@@ -134,15 +142,16 @@ function earth(t,cx,cy,R,a){
   c.beginPath();c.arc(cx,cy,R,0,7);c.stroke();c.restore();
 }
 function draw(t,dt){
-  const w=fx.width,h=fx.height,warp=state==='warp',p=warp?Math.min(1,(t-wt0)/3000):0;
-  const sp=warp?(.0005+Math.pow(p,2.5)*.045)*dt/16:0;
-  c.fillStyle=warp?`rgba(2,4,12,${.38-.28*p})`:'#02040c';c.fillRect(0,0,w,h);
+  const w=fx.width,h=fx.height,warp=state==='warp',el=t-wt0,p=warp?Math.min(1,el/3000):0;
+  const ramp=!warp||showEarth?1:Math.min(1,el/700);
+  const sp=warp?(.0008+Math.pow(p,2.5)*.045)*dt/16:0,TL=warp?.015+p*.3:0;
+  c.clearRect(0,0,w,h);c.fillStyle=`rgba(2,4,12,${ramp})`;c.fillRect(0,0,w,h);
   for(const s of ST){
-    const pz=s.z,px=s.x/pz*w/2+w/2,py=s.y/pz*h/2+h/2;
+    const pz=Math.min(s.z+TL,4),px=s.x/pz*w/2+w/2,py=s.y/pz*h/2+h/2;
     s.z-=sp;if(s.z<=.03){s.z=1;s.x=rnd(-1,1);s.y=rnd(-1,1)}
     const X=s.x/s.z*w/2+w/2,Y=s.y/s.z*h/2+h/2,k=1-s.z;
     if(X<0||X>w||Y<0||Y>h)continue;
-    if(sp>0){c.strokeStyle=`rgba(${190+60*p|0},${220-20*p|0},255,${.35+.65*k})`;c.lineWidth=.8+k*2.2*(1+p);
+    if(warp){c.strokeStyle=`rgba(${190+60*p|0},${220-20*p|0},255,${.35+.65*k})`;c.lineWidth=.8+k*2.2*(1+p);
       c.beginPath();c.moveTo(px,py);c.lineTo(X,Y);c.stroke()}
     else{c.fillStyle=`rgba(210,230,255,${.25+.7*k})`;c.fillRect(X,Y,.6+k*1.6,.6+k*1.6)}
   }
@@ -162,7 +171,7 @@ function loadMaps(key){
   };
   window.gm_authFailure=()=>keyErr('キーが認証されませんでした。キーとAPIの有効化を確認してください。');
   const s=document.createElement('script');
-  s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&callback=__init`;
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&language=ja&callback=__init`;
   s.onerror=()=>keyErr('Google Maps を読み込めませんでした。ネットワークを確認してください。');
   document.head.append(s);
 }
@@ -186,7 +195,7 @@ function arrive(id,heading,lat){
   pano.setPano(id);pano.setVisible(true);
   dir=heading??rnd(0,360);pano.setPov({heading:dir,pitch:2});
   const now=performance.now();nextStep=now+3500;endAt=now+cfg.min*60000;lastLat=lat;
-  setTheme(lat);state='cruise';showEarth=false;
+  setTheme(lat);place();lastGeo=performance.now();state='cruise';showEarth=false;
   fx.style.opacity=0;fxOn=false;$('#intro').hidden=true;
 }
 async function warp(){
@@ -195,14 +204,23 @@ async function warp(){
   audioInit();whoosh();
   const fromSpace=state==='space';showEarth=fromSpace;
   state='warp';fxOn=true;wt0=performance.now();
-  if(!fromSpace){c.clearRect(0,0,fx.width,fx.height);fx.style.transition='opacity .8s';fx.style.opacity=1}
-  else fx.style.opacity=1;
+  fx.style.transition='none';fx.style.opacity=1;$('#place').textContent='';
   $('#intro').hidden=true;closePanels();
   const [r]=await Promise.all([find(),sleep(3200)]);
   if(!r){toast('着地できる地点が見つかりませんでした。もう一度ワープしてください');state='space';showEarth=true;$('#intro').hidden=false;return}
   const fl=$('#flash');fl.style.transition='opacity .25s';fl.style.opacity=1;await sleep(300);
   fx.style.transition='none';arrive(r.id,null,r.lat);
   await sleep(50);fl.style.transition='opacity 1.8s';fl.style.opacity=0;
+}
+let geo,lastGeo=0,geoWarned=false;
+async function place(){
+  if(!cfg.place||!pano)return;const pos=pano.getPosition();if(!pos)return;
+  try{
+    geo=geo||new google.maps.Geocoder();const r=await geo.geocode({location:pos}),m={};
+    for(const x of r.results)for(const a of x.address_components)for(const ty of a.types)if(!m[ty])m[ty]=a.long_name;
+    const parts=[...new Set([m.country,m.administrative_area_level_1,m.locality||m.administrative_area_level_2||m.sublocality_level_1].filter(Boolean))];
+    $('#place').textContent=parts.length?parts.join('　'):'未知の領域';
+  }catch(e){if(!geoWarned){geoWarned=true;toast('地名を取得できません。APIキーの制限でGeocoding APIを許可してください')}$('#place').textContent=''}
 }
 function step(t){
   const L=(pano.getLinks()||[]).filter(l=>!visited.has(l.pano));
@@ -227,7 +245,7 @@ function hud(t){
 function loop(t){
   const dt=Math.min(100,t-lt);lt=t;
   if(fxOn)draw(t,dt);
-  if(state==='cruise'&&ready){if(t>nextStep)step(t);if(t>endAt)warp();cam(t,dt);hud(t)}
+  if(state==='cruise'&&ready){if(t>nextStep)step(t);if(t-lastGeo>40000){lastGeo=t;place()}if(t>endAt)warp();cam(t,dt);hud(t)}
   requestAnimationFrame(loop);
 }
 $('#pano').addEventListener('pointerdown',()=>interact=performance.now());
@@ -258,62 +276,79 @@ function renderList(){
 }
 
 /* ---------- 音（Web Audioで生成） ---------- */
-let AC,master,bp,wg,drone,TH={f:700,w:.15,sc:[261.6,293.7,329.6,392,440,523],root:130.8,bird:.5};
+let AC,master,bus={},AL={},TH=null,style=0,nbuf,tk=0;
 const THEMES={polar:{f:450,w:.5,sc:[220,246.9,329.6,392,440],root:110,bird:0},
   tropic:{f:950,w:.12,sc:[293.7,330,370,440,494,587],root:146.8,bird:1},
   temperate:{f:700,w:.18,sc:[261.6,293.7,329.6,392,440,523],root:130.8,bird:.45}};
+function noise(){const s=AC.createBufferSource();s.buffer=nbuf;s.loop=true;s.start();return s}
+function applyVol(){
+  if(!AC)return;const v=cfg.vol,t=AC.currentTime;
+  master.gain.setTargetAtTime(cfg.sound?v.master:0,t,.1);
+  bus.env.gain.setTargetAtTime(v.env,t,.1);bus.bgm.gain.setTargetAtTime(v.bgm,t,.1);bus.sfx.gain.setTargetAtTime(v.warp,t,.1);
+}
 function audioInit(){
   if(AC){AC.resume();return}
   AC=new(window.AudioContext||window.webkitAudioContext)();
-  master=AC.createGain();master.gain.value=cfg.sound?.7:0;master.connect(AC.destination);
-  const b=AC.createBuffer(1,AC.sampleRate*3,AC.sampleRate),d=b.getChannelData(0);
-  for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-  const n=AC.createBufferSource();n.buffer=b;n.loop=true;
-  bp=AC.createBiquadFilter();bp.type='bandpass';bp.frequency.value=700;bp.Q.value=.7;
-  wg=AC.createGain();wg.gain.value=.15;n.connect(bp).connect(wg).connect(master);n.start();
-  const lfo=AC.createOscillator(),lg=AC.createGain();lfo.frequency.value=.07;lg.gain.value=.05;lfo.connect(lg).connect(wg.gain);lfo.start();
-  const lp=AC.createBiquadFilter();lp.type='lowpass';lp.frequency.value=500;const dg=AC.createGain();dg.gain.value=.035;lp.connect(dg).connect(master);
-  drone=[AC.createOscillator(),AC.createOscillator()];
-  drone.forEach((o,i)=>{o.type='triangle';o.frequency.value=TH.root*(i?1.5:1);o.detune.value=i?4:-4;o.connect(lp);o.start()});
-  setInterval(note,3800);(function bird(){if(state==='cruise')chirp();setTimeout(bird,rnd(2500,7000))})();
+  master=AC.createGain();master.connect(AC.destination);
+  for(const k of['env','bgm','sfx']){bus[k]=AC.createGain();bus[k].connect(master)}
+  applyVol();
+  nbuf=AC.createBuffer(1,AC.sampleRate*3,AC.sampleRate);const d=nbuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+  const lay=(f,type,q)=>{const fl=AC.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;
+    const g=AC.createGain();g.gain.value=0;noise().connect(fl);fl.connect(g);g.connect(bus.env);return{fl,g}};
+  const w=lay(700,'bandpass',.7),r=lay(2500,'highpass',.5),v=lay(600,'lowpass',.5);
+  AL={bp:w.fl,wind:w.g,rain:r.g,waves:v.g};
+  const lfo=(rate,depth,target)=>{const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=rate;g.gain.value=depth;o.connect(g);g.connect(target);o.start()};
+  lfo(.07,.05,AL.wind.gain);lfo(.1,.06,AL.waves.gain);
+  const io=AC.createOscillator(),ig=AC.createGain();io.frequency.value=4300;ig.gain.value=0;io.connect(ig);ig.connect(bus.env);io.start();AL.ins=ig;lfo(13,.003,ig.gain);
+  const lp=AC.createBiquadFilter();lp.type='lowpass';lp.frequency.value=500;const dg=AC.createGain();dg.gain.value=.035;lp.connect(dg);dg.connect(bus.bgm);
+  AL.drone=[0,1].map(i=>{const o=AC.createOscillator();o.type='triangle';o.frequency.value=130.8*(i?1.5:1);o.detune.value=i?4:-4;o.connect(lp);o.start();return o});
+  setInterval(bgm,1200);(function bird(){if(state==='cruise')chirp();setTimeout(bird,rnd(2500,7000))})();
 }
 function setTheme(lat){
-  const a=Math.abs(lat);TH=a>55?THEMES.polar:a<23?THEMES.tropic:THEMES.temperate;
-  if(!AC)return;const t=AC.currentTime;
-  bp.frequency.setTargetAtTime(TH.f,t,3);wg.gain.setTargetAtTime(TH.w,t,3);
-  drone[0].frequency.setTargetAtTime(TH.root,t,4);drone[1].frequency.setTargetAtTime(TH.root*1.5,t,4);
+  const a=Math.abs(lat);TH=a>55?THEMES.polar:a<23?THEMES.tropic:THEMES.temperate;style=Math.random()*3|0;
+  if(!AC)return;const t=AC.currentTime,tc=3;
+  const rain=Math.random()<.15,sea=TH!==THEMES.polar&&Math.random()<.3;
+  AL.bp.frequency.setTargetAtTime(TH.f,t,tc);AL.wind.gain.setTargetAtTime(TH.w,t,tc);
+  AL.rain.gain.setTargetAtTime(rain?.1:0,t,tc);AL.waves.gain.setTargetAtTime(sea?.16:0,t,tc);
+  AL.ins.gain.setTargetAtTime(TH===THEMES.tropic?.005:TH===THEMES.temperate&&Math.random()<.5?.003:0,t,tc);
+  AL.drone[0].frequency.setTargetAtTime(TH.root,t,4);AL.drone[1].frequency.setTargetAtTime(TH.root*1.5,t,4);
 }
-function note(){
-  if(!AC||state==='space'||Math.random()<.25)return;
-  const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();
-  o.type='sine';o.frequency.value=TH.sc[Math.random()*TH.sc.length|0];
-  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.05,t+2);g.gain.exponentialRampToValueAtTime(.0005,t+8);
-  o.connect(g).connect(master);o.start(t);o.stop(t+8.5);
+function tone(f,a,att,dec,type){
+  const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.type=type||'sine';o.frequency.value=f;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(a,t+att);g.gain.exponentialRampToValueAtTime(.0005,t+att+dec);
+  o.connect(g);g.connect(bus.bgm);o.start(t);o.stop(t+att+dec+.1);
+}
+function bgm(){
+  if(!AC||!TH||state==='space')return;tk++;const S=TH.sc;
+  if(style===0){if(tk%3===0&&Math.random()>.2)tone(S[Math.random()*S.length|0],.05,2,6)}
+  else if(style===1){if(Math.random()>.15)tone(S[tk%S.length]*(Math.random()<.3?2:1),.035,.01,1.4,'triangle')}
+  else if(tk%4===0){const f=S[Math.random()*S.length|0];tone(f,.04,.02,6);tone(f*2.76,.012,.02,3)}
 }
 function chirp(){
-  if(!AC||Math.random()>TH.bird)return;
+  if(!AC||!TH||Math.random()>TH.bird)return;
   const base=rnd(2400,4200),n=2+(Math.random()*3|0);
   for(let i=0;i<n;i++){
     const t=AC.currentTime+i*.14,o=AC.createOscillator(),g=AC.createGain();
     o.frequency.setValueAtTime(base,t);o.frequency.exponentialRampToValueAtTime(base*1.4,t+.09);
     g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.025,t+.02);g.gain.linearRampToValueAtTime(0,t+.11);
-    o.connect(g).connect(master);o.start(t);o.stop(t+.12);
+    o.connect(g);g.connect(bus.env);o.start(t);o.stop(t+.12);
   }
 }
 function whoosh(){
-  if(!AC)return;const t=AC.currentTime;
-  bp.frequency.cancelScheduledValues(t);wg.gain.cancelScheduledValues(t);
-  bp.frequency.setValueAtTime(150,t);bp.frequency.exponentialRampToValueAtTime(4500,t+3);
-  wg.gain.setValueAtTime(.05,t);wg.gain.linearRampToValueAtTime(.55,t+3);
-  setTimeout(()=>setTheme(lastLat),3300);
+  if(!AC)return;const t=AC.currentTime,n=noise(),f=AC.createBiquadFilter(),g=AC.createGain();
+  f.type='bandpass';f.Q.value=.8;f.frequency.setValueAtTime(150,t);f.frequency.exponentialRampToValueAtTime(4500,t+3);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.5,t+2.8);g.gain.linearRampToValueAtTime(0,t+3.4);
+  n.connect(f);f.connect(g);g.connect(bus.sfx);n.stop(t+3.5);
+  const o=AC.createOscillator(),og=AC.createGain();o.type='sawtooth';
+  o.frequency.setValueAtTime(60,t);o.frequency.exponentialRampToValueAtTime(420,t+3);
+  og.gain.setValueAtTime(0,t);og.gain.linearRampToValueAtTime(.08,t+2.8);og.gain.linearRampToValueAtTime(0,t+3.4);
+  o.connect(og);og.connect(bus.sfx);o.start(t);o.stop(t+3.5);
 }
-function toggleSound(){
-  cfg.sound=!cfg.sound;store(CK,cfg);audioInit();
-  master.gain.setTargetAtTime(cfg.sound?.7:0,AC.currentTime,.3);toast(cfg.sound?'音：オン':'音：オフ');
-}
+function toggleSound(){cfg.sound=!cfg.sound;store(CK,cfg);audioInit();applyVol();ok(cfg.sound?'音：オン':'音：オフ')}
 
 /* ---------- UI ---------- */
-function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._t);t._t=setTimeout(()=>t.style.opacity=0,2200)}
+function toast(m,ms=2200){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._t);t._t=setTimeout(()=>t.style.opacity=0,ms)}
+const ok=m=>toast('✓ '+m,1400);
 function closePanels(){$('#pSet').hidden=$('#pList').hidden=true}
 function toggle(id){$('#vUse').textContent=usage().n;const p=$(id),o=p.hidden;closePanels();p.hidden=!o}
 function wake(){document.body.classList.remove('idle');clearTimeout(idleT);
@@ -324,10 +359,20 @@ $('#go').onclick=warp;$('#bWarp').onclick=warp;$('#bSave').onclick=save;$('#bFs'
 $('#bList').onclick=()=>toggle('#pList');$('#bSet').onclick=()=>toggle('#pSet');
 $('#bKey').onclick=()=>{$('#key').hidden=false;$('#kIn').value=''};
 $('#rMin').value=cfg.min;$('#vMin').textContent=cfg.min;$('#sStep').value=cfg.step;
-$('#rMin').oninput=e=>{cfg.min=+e.target.value;$('#vMin').textContent=cfg.min;store(CK,cfg)};
+$('#rMin').oninput=e=>{const v=+e.target.value;if(state==='cruise'&&isFinite(endAt))endAt+=(v-cfg.min)*60000;cfg.min=v;$('#vMin').textContent=v;store(CK,cfg)};
+$('#rMin').onchange=()=>ok(`滞在時間を ${cfg.min} 分にしました`);
 $('#rLim').value=cfg.limit;$('#vLim').textContent=cfg.limit;$('#vUse').textContent=usage().n;
 $('#rLim').oninput=e=>{cfg.limit=+e.target.value;$('#vLim').textContent=cfg.limit;store(CK,cfg)};
-$('#sStep').onchange=e=>{cfg.step=+e.target.value;store(CK,cfg)};
+$('#rLim').onchange=()=>ok(`1日の上限を ${cfg.limit} 回にしました`);
+$('#sStep').onchange=e=>{cfg.step=+e.target.value;store(CK,cfg);ok(`移動の速さを「${e.target.selectedOptions[0].text}」にしました`)};
+$('#cPlace').checked=cfg.place;$('#place').hidden=!cfg.place;
+$('#cPlace').onchange=e=>{cfg.place=e.target.checked;store(CK,cfg);$('#place').hidden=!cfg.place;if(cfg.place&&state==='cruise')place();ok(cfg.place?'地名を表示します':'地名を非表示にしました')};
+const VN={master:'全体の音量',env:'環境音の音量',bgm:'BGMの音量',warp:'ワープ音の音量'};
+document.querySelectorAll('[data-vol]').forEach(el=>{
+  const k=el.dataset.vol;el.value=Math.round(cfg.vol[k]*100);
+  el.oninput=()=>{cfg.vol[k]=el.value/100;store(CK,cfg);applyVol()};
+  el.onchange=()=>{ok(`${VN[k]}を ${el.value}% にしました`);if(k==='warp'){audioInit();whoosh()}};
+});
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   const k=e.key.toLowerCase();
