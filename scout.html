@@ -80,7 +80,7 @@ border-radius:8px;color:var(--ice);font:inherit}
 <div id="flash"></div>
 
 <div id="intro" hidden>
-  <div><h1>偵察船</h1><p>ワープして、地球のどこかへ。</p></div>
+  <div><h1>偵察船</h1><p>ワープして、地球のどこかへ。</p><p id="vis" style="font-size:12px"></p></div>
   <button id="go">ワープ</button>
 </div>
 
@@ -110,6 +110,8 @@ border-radius:8px;color:var(--ice);font:inherit}
   <label>BGMの音量</label><input type="range" data-vol="bgm" min="0" max="100">
   <label>ワープ音の音量（離すと試聴）</label><input type="range" data-vol="warp" min="0" max="100">
   <label class="chk"><input type="checkbox" id="cAwake"> 画面を消灯させない</label>
+  <label>訪問履歴（起動画面の光る点）</label>
+  <button id="bVis">訪問履歴を消去する</button>
   <label>Google Maps APIキー</label>
   <button id="bKey">キーを変更する</button>
 </section>
@@ -146,6 +148,18 @@ function overLimit(){
   toast(`今日の着地回数の上限（${cfg.limit}回）に達しました。明日また出発できます`);return true;
 }
 let paused=false,pauseAt=0,wl=null;
+let visits=load('scout.visits',{}),VA=Object.values(visits),lastV=VA.reduce((a,b)=>!a||(b.t||0)>(a.t||0)?b:a,null);
+const vkey=(a,b)=>a.toFixed(1)+','+b.toFixed(1);
+function renderVisits(){
+  const n=VA.length,cs=new Set(VA.map(v=>v.c).filter(Boolean)).size;
+  $('#vis').textContent=n?`偵察済み ${n} 地点${cs?`・${cs} か国・地域`:''}　ドラッグで地球を回せます`:'ドラッグで地球を回せます';
+}
+function addVisit(lat,lng){
+  if(!isFinite(lat)||!isFinite(lng))return;
+  const k=vkey(lat,lng),v=visits[k]||(visits[k]={lat,lng,n:0});v.n++;v.t=Date.now();lastV=v;
+  store('scout.visits',visits);VA=Object.values(visits);renderVisits();
+}
+function tagVisit(lat,lng,cn){const v=visits[vkey(lat,lng)];if(v&&cn&&v.c!==cn){v.c=cn;store('scout.visits',visits);renderVisits()}}
 let sv,pano,ready=false,state='space',fxOn=true,showEarth=true,wt0=0,dir=0,visited=new Set(),stuck=0;
 let nextStep=0,endAt=0,interact=-1e9,lastLat=0,lt=0,hudT=0,idleT;
 
@@ -160,18 +174,39 @@ const CITIES=[[35.68,139.76],[35.01,135.77],[43.06,141.35],[26.2,127.68],[37.57,
 const fx=$('#fx'),c=fx.getContext('2d');
 const rs=()=>{fx.width=innerWidth;fx.height=innerHeight};addEventListener('resize',rs);rs();
 const ST=[...Array(520)].map(()=>({x:rnd(-1,1),y:rnd(-1,1),z:rnd(.08,1)}));
-const BL=[...Array(18)].map(()=>({lo:rnd(0,6.28),la:rnd(-1.1,1.1),s:rnd(.07,.2),c:Math.random()<.7?'#3f7a45':'#9a8a58'}));
+const LAND_B64='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADofwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPj/n////2MAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/++f///x8AACABgGkAAOABAAAAAAAAAAAAAAAAWPw//v///wMAAD8AAAAAAAA4AAAAAAAAAAAAAAAHAMAB/P///w8AAAwAAAAAAAgwAAAAAAAAAAAAAAC8cxgDAP7//wcAAAAAAIAHAMD/DwD0AAAAAAAAAOACAAAAAPz//wcAAAAAAGAAAPz/AQAAAAAAAAAAAOA/Y7UDAPD/vwEAAAAAABjAwP//9z9AAAAAA4AAAED8A2P/AeD/fwMAAAAAABDg9v///z//HwCAAPj/A0/8X4PkB9j//wAAAPA/AADj/v///////wc9A/7///8Hwp6hB8D/DwAAAPj/Y+z//f//////////N/D///////+Bf+D/AQAAAP6/x/+//v//////////GP7//////7/wJ+AfAH4AAD5++P//////////////AOD//////8sCH8AfAAwAwL////////////////9/APz//////wNxDIAPAAAI8M////////////////8fAPjf/////wHwAwAOAAAA+M///////////////+ADAPAB+P///wHwMwAAAAAA+A////////////9/YhgAAIAC4P///wPgfwAAAAAQABf///////////8fAB4AACAAAP///x/ofwAAAAAwYMb///////////8PAB8AAAQAgP7////5/wEAAABMwOD///////////8DAA8AAAAAAPz////5/wcAAADs8P////////////8/AAcAAAAAAPj////7/wMAAADi+f////////////+/AAEAAAAAAPj/////jwAAAAAw/v////////////+/gAAAAAAAAOD/////Gw4AAACA//////////////8fAAAAAAAAAOD/////HxAAAACA//////////////8fAAAAAAAAAOD/////PwAAAACA//9P/vj///////8PAAAAAAAAAOD/////EwAAAACA//wHfPz////////HAAAAAAAAAOD/////AQAAAAD8g/EH8Pj////////gAAAAAAAAAOD///9/AAAAAAD8Aebn+fH//////z8AAAAAAAAAAOD///9/AAAAAAD8AGD+//H//////xpgAAAAAAAAAMD///8/AAAAAAD8AMT8//H/////fzggAAAAAAAAAID///8fAAAAAAAQdADs//v//////zE4AAAAAAAAAID///8fAAAAAACwfwBD/////////zA/AAAAAAAAAAD+//8HAAAAAAD4fwAA/////////0AHAAAAAAAAAAD8//8DAAAAAAD8/2OA/////////4EAAAAAAAAAAADo//8DAAAAAAD+/+///////////wEAAAAAAAAAAAD4/xkCAAAAAAD+//////z//////wEAAAAAAAAAAADYfwACAAAAAID///8///n//////wAAAAAAAAAAAACgfwAGAAAAAMD///9//8H//////wAAAAAAAAAAAAAgfwAAAAAAAMD///9//jPg////fwAAAAAAAAAAAAAAfgAAAAAAAOD//////H/A////PwEAAAAAAAAAAAAAfAAIAAAAAOD//////f/A/+//BwAAAAAAAAAAAAAAfDBwAAAAAOD/////+X8A/sN/AAAAAAAAAAAAAAAA+DgAAwAAAOD/////+T8A/oA/AwAAAAAAAAAAAAAA4B8AAAAAAOD/////8x8AfoB/AAMAAAAAAAAAAAAAgPwAAAAAAOD/////8wcAPgD+AAEAAAAAAAAAAAAAAPgBAAAAAOD/////7wEAHAD+AQEAAAAAAAAAAAAAAMAAAAAAAOD/////PwAAHAD8AQAAAAAAAAAAAAAAAICAAgAAAOD/////HwMAGADgAQ4AAAAAAAAAAAAAAADBfgAAAID//////wMAOABAAAAAAAAAAAAAAAAAAADy/wAAAID//////wEAKAAEAAwAAAAAAAAAAAAAAADw/wEAAAD//////wEAYAAIAAgAAAAAAAAAAAAAAADw/x8AAAB88P///wAAAIAZ4AAAAAAAAAAAAAAAAADg/z8AAAAAwP///wAAAAAbMAAAAAAAAAAAAAAAAADw/z8AAAAAgP//PwAAAAAWfCAAAAAAAAAAAAAAAAD4/z8AAAAAwP//HwAAAAAMficAAAAAAAAAAAAAAAD8//8BAAAAwP//DwAAAAAYPiAFAAAAAAAAAAAAAAD8//8DAAAAwP//BwAAAAA8vgEZAAAAAAAAAAAAAAD8//8/AAAAgP//BwAAAABwMBL+AAAAAAAAAAAAAAD8////AAAAAP//BwAAAABgAADwAQAAAAAAAAAAAAD4////AQAAAP//AwAAAADAAADiAwAAAAAAAAAAAAD4////AQAAAP7/AwAAAAAAHATwBgAAAAAAAAAAAADw////AAAAAP7/AwAAAAAAAAQADAAAAAAAAAAAAADw//9/AAAAAP7/BwAAAAAAAIAAAAAAAAAAAAAAAADg//9/AAAAAP7/BwAAAAAAAICHAAAAAAAAAAAAAADg//8/AAAAAP//BwEAAAAAANDHAAAAAAAAAAAAAADA//8/AAAAAP//hwMAAAAAAPjHAQAAAAAAAAAAAAAA//8/AAAAAP//4QEAAAAAAP7fAQAAAAAAAAAAAAAA/v8/AAAAAP//4AEAAAAAAP7/AwAAAAAAAAAAAAAA/v8fAAAAAP5/wEAAAAAAgP//BwAAAAAAAAAAAAAA/v8fAAAAAP7/4AAAAAAA4P//D0AAAAAAAAAAAAAA/v8DAAAAAPz/4AAAAAAA8P//HwAAAAAAAAAAAAAA/v8AAAAAAPx/YAAAAAAA8P//PwAAAAAAAAAAAAAA/v8AAAAAAPw/AAAAAAAA+P//PwAAAAAAAAAAAAAA/v8AAAAAAPw/AAAAAAAA8P//PwAAAAAAAAAAAAAA/38AAAAAAPgfAAAAAAAA4P//PwAAAAAAAAAAAAAA/z8AAAAAAPAPAAAAAAAA4P//PwAAAAAAAAAAAAAA/x8AAAAAAPAHAAAAAAAA4B/+PwAAAAAAAAAAAAAA/w8AAAAAAPABAAAAAAAA4AP0HwAAAAAAAAAAAAAA/wMAAAAAAAAAAAAAAAAAAADwDwAIAAAAAAAAAACA/wMAAAAAAAAAAAAAAAAAAADgDwAQAAAAAAAAAACA/wEAAAAAAAAAAAAAAAAAAADAAgBwAAAAAAAAAACAfwAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAACAHwAAAAAAAAAAAAAAAAAAAAAABwAQAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAABgAMAAAAAAAAAACADwAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAACABwAAAAAAAAAAAAAAAAAAAAAAAIADAAAAAAAAAADADwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAD0AAPD/Htw/AAAAAAAAAAAAAAAAGAAAAAAAAAAA8P9/4P//////AwAAAAAAAAAAAAAAPwAAAAAAAADA/f8/+P///////wcAAAAAAAAAAAAAewAAAAAK//////8///////////8AAAAAAAAACAAA+AAAAMD///////////////////8BAAAAAEAo8P//fwAAAMD//////////////////z8AAAAA////////HwAAAP///////////////////w8AAICB//////8fAAAA/P///////////////////x8AAAj///////8MBMAD/////////////////////x8AAADw//////8fgPAH8P///////////////////wMAAAD+////////DwDw/////////////////////w8AwIP/////////f/7///////////////////////8A/8D/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////';
+const LD=(()=>{const b=atob(LAND_B64),W=240,H=120,la=[],lo=[],r=Math.PI/180;
+  for(let k=0;k<W*H;k++)if((b.charCodeAt(k>>3)>>(k&7))&1){la.push((90-((k/W|0)+.5)*1.5)*r);lo.push((-180+((k%W)+.5)*1.5)*r)}
+  return{lo:Float32Array.from(lo),sl:Float32Array.from(la,Math.sin),cl:Float32Array.from(la,Math.cos),n:la.length}})();
+let rot=2.4,tilt=.35,drag=false,lastE=0;
 function earth(t,cx,cy,R,a){
+  const dtE=Math.min(100,t-lastE);lastE=t;if(!drag&&state==='space')rot+=dtE*.00004;
+  const st=Math.sin(tilt),ct=Math.cos(tilt);
   c.save();c.globalAlpha=a;c.beginPath();c.arc(cx,cy,R,0,7);c.clip();
-  let g=c.createRadialGradient(cx-R*.3,cy-R*.3,R*.1,cx,cy,R);g.addColorStop(0,'#3b84c6');g.addColorStop(1,'#08284a');
+  let g=c.createRadialGradient(cx-R*.3,cy-R*.3,R*.1,cx,cy,R);g.addColorStop(0,'#2f78b8');g.addColorStop(1,'#061d38');
   c.fillStyle=g;c.fillRect(cx-R,cy-R,2*R,2*R);
-  for(const b of BL){const l=b.lo+t/40000,v=Math.cos(b.la)*Math.cos(l);if(v<=0)continue;
-    c.fillStyle=b.c;c.beginPath();c.ellipse(cx+R*Math.cos(b.la)*Math.sin(l),cy-R*Math.sin(b.la),R*b.s*v,R*b.s*1.1,0,0,7);c.fill()}
-  g=c.createRadialGradient(cx-R*.5,cy-R*.4,R*.4,cx+R*.2,cy,R*1.25);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,10,.85)');
+  c.fillStyle='rgb(110,215,180)';
+  for(let i=0;i<LD.n;i++){
+    const dl=LD.lo[i]-rot,cd=Math.cos(dl),z=st*LD.sl[i]+ct*LD.cl[i]*cd;if(z<=.02)continue;
+    const sz=R*.009+R*.006*z;c.globalAlpha=a*(.2+.7*z);
+    c.fillRect(cx+R*LD.cl[i]*Math.sin(dl)-sz/2,cy-R*(ct*LD.sl[i]-st*LD.cl[i]*cd)-sz/2,sz,sz);
+  }
+  c.globalAlpha=a;
+  g=c.createRadialGradient(cx-R*.5,cy-R*.4,R*.4,cx+R*.2,cy,R*1.25);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,10,.8)');
   c.fillStyle=g;c.fillRect(cx-R,cy-R,2*R,2*R);c.restore();
+  c.save();
+  for(const v of VA){
+    const ph=v.lat*Math.PI/180,dl=v.lng*Math.PI/180-rot,cd=Math.cos(dl),z=st*Math.sin(ph)+ct*Math.cos(ph)*cd;if(z<=0)continue;
+    const X=cx+R*Math.cos(ph)*Math.sin(dl),Y=cy-R*(ct*Math.sin(ph)-st*Math.cos(ph)*cd);
+    c.globalAlpha=a*(.4+.6*z);c.fillStyle='rgba(255,184,107,.2)';c.beginPath();c.arc(X,Y,R*.03,0,7);c.fill();
+    c.fillStyle='#ffd29a';c.beginPath();c.arc(X,Y,R*.009+1,0,7);c.fill();
+    if(v===lastV){const q=(t/1100)%1;c.globalAlpha=a*(1-q)*.8;c.strokeStyle='#ffb86b';c.lineWidth=1.5;c.beginPath();c.arc(X,Y,R*(.012+.04*q),0,7);c.stroke()}
+  }
+  c.restore();
   c.save();c.globalAlpha=a;c.strokeStyle='rgba(120,190,255,.35)';c.lineWidth=R*.04;c.shadowColor='#6bb8ff';c.shadowBlur=R*.2;
   c.beginPath();c.arc(cx,cy,R,0,7);c.stroke();c.restore();
 }
+
 function draw(t,dt){
   const w=fx.width,h=fx.height,warp=state==='warp',el=Math.max(0,t-wt0),p=warp?Math.min(1,el/3000):0;
   const ramp=!warp||showEarth?1:Math.min(1,el/700);
@@ -215,13 +250,13 @@ async function find(){
       const r=await sv.getPanorama({location:{lat,lng},radius:ct?30000:200000,
         preference:google.maps.StreetViewPreference.NEAREST,source:google.maps.StreetViewSource.OUTDOOR});
       const d=r.data;
-      if(d&&d.location&&d.location.pano&&/Google/.test(d.copyright||''))return{id:d.location.pano,lat:d.location.latLng.lat()};
+      if(d&&d.location&&d.location.pano&&/Google/.test(d.copyright||''))return{id:d.location.pano,lat:d.location.latLng.lat(),lng:d.location.latLng.lng()};
     }catch(e){}
   }
   return null;
 }
-function arrive(id,heading,lat){
-  paused=false;syncPause();keepAwake();
+function arrive(id,heading,lat,lng){
+  paused=false;syncPause();keepAwake();addVisit(lat,lng);
   visited=new Set([id]);stuck=0;
   const n=bump();if(n===Math.ceil(cfg.limit*.8))toast(`今日の着地回数が上限の80%（${n}/${cfg.limit}）に達しました`);
   pano.setPano(id);pano.setVisible(true);
@@ -241,7 +276,7 @@ async function warp(){
   const [r]=await Promise.all([find(),sleep(3200)]);
   if(!r){toast('着地できる地点が見つかりませんでした。もう一度ワープしてください');state='space';showEarth=true;$('#intro').hidden=false;return}
   const fl=$('#flash');fl.style.transition='opacity .25s';fl.style.opacity=1;await sleep(300);
-  fx.style.transition='none';arrive(r.id,null,r.lat);
+  fx.style.transition='none';arrive(r.id,null,r.lat,r.lng);
   await sleep(50);fl.style.transition='opacity 1.8s';fl.style.opacity=0;
 }
 let geo,lastGeo=0,geoWarned=false;
@@ -251,7 +286,7 @@ async function place(){
     geo=geo||new google.maps.Geocoder();const r=await geo.geocode({location:pos}),m={};
     for(const x of r.results)for(const a of x.address_components)for(const ty of a.types)if(!m[ty])m[ty]=a.long_name;
     const parts=[...new Set([m.country,m.administrative_area_level_1,m.locality||m.administrative_area_level_2||m.sublocality_level_1].filter(Boolean))];
-    $('#place').textContent=parts.length?parts.join('　'):'未知の領域';
+    $('#place').textContent=parts.length?parts.join('　'):'未知の領域';tagVisit(pos.lat(),pos.lng(),parts[0]);
   }catch(e){if(!geoWarned){geoWarned=true;toast('地名を取得できません。APIキーの制限でGeocoding APIを許可してください')}$('#place').textContent=''}
 }
 function step(t){
@@ -312,7 +347,7 @@ async function jump(s){
   try{const r=await sv.getPanorama({pano:s.pano});id=r.data.location.pano}catch(e){}
   if(!id)try{const r=await sv.getPanorama({location:{lat:s.lat,lng:s.lng},radius:300,...R});id=r.data.location.pano}catch(e){}
   if(!id){toast('この地点の景色を読み込めませんでした');return}
-  arrive(id,s.h,s.lat);closePanels();
+  arrive(id,s.h,s.lat,s.lng);closePanels();
 }
 function renderList(){
   const el=$('#list');el.textContent='';
@@ -521,7 +556,12 @@ $('#cAwake').onchange=e=>{cfg.awake=e.target.checked;store(CK,cfg);cfg.awake?kee
 $('#bPause').onclick=togglePause;$('#bExp').onclick=exportSaves;$('#bImp').onclick=()=>$('#fImp').click();
 $('#fImp').onchange=e=>{if(e.target.files[0])importSaves(e.target.files[0]);e.target.value=''};
 addEventListener('keyup',e=>{if(e.key===' '&&e.target.tagName!=='INPUT')e.preventDefault()});
-renderList();requestAnimationFrame(loop);
+$('#bVis').onclick=()=>{if(!confirm('訪問履歴をすべて消去しますか？'))return;visits={};VA=[];lastV=null;store('scout.visits',visits);renderVisits();ok('訪問履歴を消去しました')};
+let dx0=0,dy0=0;
+addEventListener('pointerdown',e=>{if(state!=='space'||!ready||e.target.closest('button,.panel,input,select,a,#key'))return;drag=true;dx0=e.clientX;dy0=e.clientY});
+addEventListener('pointermove',e=>{if(!drag)return;rot-=(e.clientX-dx0)*.006;tilt=Math.max(-1,Math.min(1,tilt+(e.clientY-dy0)*.004));dx0=e.clientX;dy0=e.clientY});
+addEventListener('pointerup',()=>drag=false);addEventListener('pointercancel',()=>drag=false);
+renderVisits();renderList();requestAnimationFrame(loop);
 const saved=localStorage.getItem(K);if(saved)loadMaps(saved);
 </script>
 </body>
