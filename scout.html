@@ -65,6 +65,10 @@ body.idle #lm{opacity:.5}
 .item div{display:flex;gap:6px;margin-top:6px}.item button{font-size:12px;padding:.15em .8em}
 .item a{color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:99px;padding:.15em .8em;text-decoration:none}
 #place{position:fixed;top:calc(16px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);color:rgba(207,230,255,.6);font-size:15px;letter-spacing:.3em;padding-left:.3em;text-shadow:0 0 8px #000;z-index:4;pointer-events:none;text-align:center;white-space:nowrap}
+#log{position:fixed;right:16px;bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:4;pointer-events:none;
+font:12px/1.7 ui-monospace,"SFMono-Regular",Consolas,"Hiragino Sans","Yu Gothic UI",monospace;letter-spacing:.04em;color:var(--ice);
+background:rgba(2,6,16,.5);backdrop-filter:blur(5px);border-left:2px solid var(--amber);padding:8px 14px;max-width:min(380px,85vw);transition:opacity 1s}
+#log .lh{color:var(--amber)}
 #toast{position:fixed;left:50%;top:calc(56px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:rgba(2,6,16,.8);border:1px solid rgba(255,184,107,.5);
 padding:.5em 1.4em;border-radius:99px;opacity:0;transition:opacity .5s;pointer-events:none;z-index:9;color:var(--amber)}
 #key{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--void);z-index:10;padding:20px}
@@ -89,6 +93,7 @@ border-radius:8px;color:var(--ice);font:inherit}
 <section id="lmCard" class="card" hidden><img id="cImg" alt=""><h2 id="cT"></h2><p id="cTx"></p>
 <div class="row"><button id="cNext">次の候補</button><a id="cA" target="_blank" rel="noopener">Wikipediaで読む</a><button id="cClose">閉じる</button></div>
 <small>出典: Wikipedia（CC BY-SA）。位置は方向の目安で、建物の陰になる場合もあります。</small></section>
+<div id="log" hidden></div>
 <div id="hud" class="ui"></div>
 <div id="bar" class="ui" hidden>
   <button id="bWarp">ワープ (W)</button><button id="bPause">一時停止 (Space)</button><button id="bSave">保存 (S)</button><button id="bList">記録</button>
@@ -110,6 +115,7 @@ border-radius:8px;color:var(--ice);font:inherit}
   <label>BGMの音量</label><input type="range" data-vol="bgm" min="0" max="100">
   <label>ワープ音の音量（離すと試聴）</label><input type="range" data-vol="warp" min="0" max="100">
   <label class="chk"><input type="checkbox" id="cAwake"> 画面を消灯させない</label>
+  <label class="chk"><input type="checkbox" id="cLog"> 着地時に偵察ログを表示する (R)</label>
   <label>訪問履歴（起動画面の光る点）</label>
   <button id="bVis">訪問履歴を消去する</button>
   <label>Google Maps APIキー</label>
@@ -157,7 +163,7 @@ function renderVisits(){
 function addVisit(lat,lng){
   if(!isFinite(lat)||!isFinite(lng))return;
   const k=vkey(lat,lng),v=visits[k]||(visits[k]={lat,lng,n:0});v.n++;v.t=Date.now();lastV=v;
-  store('scout.visits',visits);VA=Object.values(visits);renderVisits();
+  store('scout.visits',visits);VA=Object.values(visits);renderVisits();return v.n;
 }
 function tagVisit(lat,lng,cn){const v=visits[vkey(lat,lng)];if(v&&cn&&v.c!==cn){v.c=cn;store('scout.visits',visits);renderVisits()}}
 let sv,pano,ready=false,state='space',fxOn=true,showEarth=true,wt0=0,dir=0,visited=new Set(),stuck=0;
@@ -255,8 +261,43 @@ async function find(){
   }
   return null;
 }
+let logTok=0,LOGREG='',LOGROW=null,LOGDONE=false;
+function setReg(t){LOGREG=t;if(LOGROW&&LOGDONE)LOGROW.textContent='> 領域　 '+t}
+function blip(){
+  if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.frequency.value=1500;
+  g.gain.setValueAtTime(.12,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);o.connect(g);g.connect(bus.sfx);o.start(t);o.stop(t+.06);
+}
+async function scoutLog(lat,lng,vn){
+  const el=$('#log'),tok=++logTok;LOGREG='';LOGROW=null;LOGDONE=false;
+  if(!cfg.log){el.hidden=true;return}
+  el.textContent='';el.style.opacity=0;el.hidden=false;
+  await sleep(700);if(tok!==logTok)return;el.style.opacity=1;
+  const off=Math.round(lng/15),d=new Date(Date.now()+off*3600e3),p2=n=>String(n).padStart(2,'0');
+  const zone=Math.abs(lat)>55?'極地帯':Math.abs(lat)<23?'熱帯':'温帯';
+  const lines=[
+    ['SCOUT-01　着地シーケンス完了','lh'],
+    [`座標　 ${Math.abs(lat).toFixed(4)}°${lat>=0?'N':'S'}　${Math.abs(lng).toFixed(4)}°${lng>=0?'E':'W'}`],
+    [LOGREG?`領域　 ${LOGREG}`:'領域　 解析中…','reg'],
+    [`推定地方時　 ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}（UTC${off>=0?'+':''}${off}）`],
+    [`気候帯　 ${zone}（緯度から推定）`],
+    [vn>1?`履歴　 既知の領域（${vn}回目の着地）`:'履歴　 未踏領域。新規に記録'],
+    [`本日の偵察　 ${usage().n} / ${cfg.limit} 回`]
+  ];
+  for(const [txt,tag] of lines){
+    if(tok!==logTok)return;
+    const row=document.createElement('div');row.className='lr'+(tag==='lh'?' lh':'');el.append(row);
+    if(tag==='reg')LOGROW=row;
+    blip();
+    for(let i=1;i<=txt.length;i++){row.textContent='> '+txt.slice(0,i);await sleep(20);if(tok!==logTok)return}
+    if(tag==='reg'){LOGDONE=true;if(LOGREG)row.textContent='> 領域　 '+LOGREG}
+    await sleep(120);
+  }
+  await sleep(6500);if(tok!==logTok)return;
+  el.style.opacity=0;await sleep(1000);if(tok===logTok)el.hidden=true;
+}
+function setLog(v){cfg.log=v;store(CK,cfg);$('#cLog').checked=v;if(!v){logTok++;$('#log').hidden=true}ok(v?'着地時に偵察ログを表示します':'偵察ログを表示しません')}
 function arrive(id,heading,lat,lng){
-  paused=false;syncPause();keepAwake();addVisit(lat,lng);
+  paused=false;syncPause();keepAwake();scoutLog(lat,lng,addVisit(lat,lng));
   visited=new Set([id]);stuck=0;
   const n=bump();if(n===Math.ceil(cfg.limit*.8))toast(`今日の着地回数が上限の80%（${n}/${cfg.limit}）に達しました`);
   pano.setPano(id);pano.setVisible(true);
@@ -271,7 +312,7 @@ async function warp(){
   audioInit();whoosh();paused=false;syncPause();keepAwake();
   const fromSpace=state==='space';showEarth=fromSpace;
   state='warp';fxOn=true;wt0=performance.now();
-  fx.style.transition='none';fx.style.opacity=1;$('#place').textContent='';$('#lm').hidden=true;
+  fx.style.transition='none';fx.style.opacity=1;logTok++;$('#log').hidden=true;$('#place').textContent='';$('#lm').hidden=true;
   $('#intro').hidden=true;closePanels();
   const [r]=await Promise.all([find(),sleep(3200)]);
   if(!r){toast('着地できる地点が見つかりませんでした。もう一度ワープしてください');state='space';showEarth=true;$('#intro').hidden=false;return}
@@ -281,13 +322,13 @@ async function warp(){
 }
 let geo,lastGeo=0,geoWarned=false;
 async function place(){
-  if(!cfg.place||!pano)return;const pos=pano.getPosition();if(!pos)return;
+  if(!cfg.place){setReg('（地名表示オフ）');return}if(!pano)return;const pos=pano.getPosition();if(!pos)return;
   try{
     geo=geo||new google.maps.Geocoder();const r=await geo.geocode({location:pos}),m={};
     for(const x of r.results)for(const a of x.address_components)for(const ty of a.types)if(!m[ty])m[ty]=a.long_name;
     const parts=[...new Set([m.country,m.administrative_area_level_1,m.locality||m.administrative_area_level_2||m.sublocality_level_1].filter(Boolean))];
-    $('#place').textContent=parts.length?parts.join('　'):'未知の領域';tagVisit(pos.lat(),pos.lng(),parts[0]);
-  }catch(e){if(!geoWarned){geoWarned=true;toast('地名を取得できません。APIキーの制限でGeocoding APIを許可してください')}$('#place').textContent=''}
+    $('#place').textContent=parts.length?parts.join('　'):'未知の領域';tagVisit(pos.lat(),pos.lng(),parts[0]);setReg($('#place').textContent);
+  }catch(e){if(!geoWarned){geoWarned=true;toast('地名を取得できません。APIキーの制限でGeocoding APIを許可してください')}$('#place').textContent='';setReg('解析不能')}
 }
 function step(t){
   const L=(pano.getLinks()||[]).filter(l=>!visited.has(l.pano));
@@ -488,7 +529,7 @@ document.querySelectorAll('[data-vol]').forEach(el=>{
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   const k=e.key.toLowerCase();
-  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(e.key===' '){e.preventDefault();togglePause()}else if(k==='escape')closePanels();
+  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(e.key===' '){e.preventDefault();togglePause()}else if(k==='r')setLog(!cfg.log);else if(k==='escape')closePanels();
 });
 function boot(){const v=$('#kIn').value.trim();if(!v)return;try{localStorage.setItem(K,v)}catch(e){}
   if(ready){location.reload();return}$('#err').textContent='';loadMaps(v)}
@@ -561,6 +602,7 @@ let dx0=0,dy0=0;
 addEventListener('pointerdown',e=>{if(state!=='space'||!ready||e.target.closest('button,.panel,input,select,a,#key'))return;drag=true;dx0=e.clientX;dy0=e.clientY});
 addEventListener('pointermove',e=>{if(!drag)return;rot-=(e.clientX-dx0)*.006;tilt=Math.max(-1,Math.min(1,tilt+(e.clientY-dy0)*.004));dx0=e.clientX;dy0=e.clientY});
 addEventListener('pointerup',()=>drag=false);addEventListener('pointercancel',()=>drag=false);
+if(cfg.log===undefined)cfg.log=true;$('#cLog').checked=cfg.log;$('#cLog').onchange=e=>setLog(e.target.checked);
 renderVisits();renderList();requestAnimationFrame(loop);
 const saved=localStorage.getItem(K);if(saved)loadMaps(saved);
 </script>
