@@ -58,6 +58,9 @@ body.idle #lm{opacity:.5}
 .card a{color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:99px;padding:.3em 1em;text-decoration:none}
 .card small{display:block;margin-top:8px;color:var(--dim);font-size:11px}
 .panel .chk{display:flex;gap:8px;align-items:center;color:var(--ice);font-size:13px}.panel .chk input{accent-color:var(--amber)}
+.tools{display:flex;gap:6px;margin-bottom:8px}.tools button{font-size:12px;padding:.15em .8em}
+.item b{display:block;font-weight:400;font-size:13px}.item .sub{display:block;color:var(--dim)}
+.item input{width:100%;margin-top:6px;background:#050a18;color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:6px;padding:4px 8px;font:inherit;font-size:12px}
 .item{border-top:1px solid rgba(207,230,255,.12);padding:10px 0;font-size:12px}
 .item div{display:flex;gap:6px;margin-top:6px}.item button{font-size:12px;padding:.15em .8em}
 .item a{color:var(--ice);border:1px solid rgba(207,230,255,.25);border-radius:99px;padding:.15em .8em;text-decoration:none}
@@ -88,7 +91,7 @@ border-radius:8px;color:var(--ice);font:inherit}
 <small>出典: Wikipedia（CC BY-SA）。位置は方向の目安で、建物の陰になる場合もあります。</small></section>
 <div id="hud" class="ui"></div>
 <div id="bar" class="ui" hidden>
-  <button id="bWarp">ワープ (W)</button><button id="bSave">保存 (S)</button><button id="bList">記録</button>
+  <button id="bWarp">ワープ (W)</button><button id="bPause">一時停止 (Space)</button><button id="bSave">保存 (S)</button><button id="bList">記録</button>
   <button id="bLm">ランドマーク (L)</button><button id="bSet">設定</button><button id="bSnd">音 (M)</button><button id="bFs">全画面 (F)</button>
 </div>
 
@@ -106,11 +109,13 @@ border-radius:8px;color:var(--ice);font:inherit}
   <label>環境音の音量</label><input type="range" data-vol="env" min="0" max="100">
   <label>BGMの音量</label><input type="range" data-vol="bgm" min="0" max="100">
   <label>ワープ音の音量（離すと試聴）</label><input type="range" data-vol="warp" min="0" max="100">
+  <label class="chk"><input type="checkbox" id="cAwake"> 画面を消灯させない</label>
   <label>Google Maps APIキー</label>
   <button id="bKey">キーを変更する</button>
 </section>
 <section id="pList" class="panel" hidden>
-  <h2>保存した地点</h2><div id="list"></div>
+  <h2>保存した地点</h2>
+  <div class="tools"><button id="bExp">書き出し</button><button id="bImp">読み込み</button><input type="file" id="fImp" accept=".json,application/json" hidden></div><div id="list"></div>
 </section>
 
 <div id="toast"></div>
@@ -140,6 +145,7 @@ function overLimit(){
   if(usage().n<cfg.limit)return false;
   toast(`今日の着地回数の上限（${cfg.limit}回）に達しました。明日また出発できます`);return true;
 }
+let paused=false,pauseAt=0,wl=null;
 let sv,pano,ready=false,state='space',fxOn=true,showEarth=true,wt0=0,dir=0,visited=new Set(),stuck=0;
 let nextStep=0,endAt=0,interact=-1e9,lastLat=0,lt=0,hudT=0,idleT;
 
@@ -215,6 +221,7 @@ async function find(){
   return null;
 }
 function arrive(id,heading,lat){
+  paused=false;syncPause();keepAwake();
   visited=new Set([id]);stuck=0;
   const n=bump();if(n===Math.ceil(cfg.limit*.8))toast(`今日の着地回数が上限の80%（${n}/${cfg.limit}）に達しました`);
   pano.setPano(id);pano.setVisible(true);
@@ -226,7 +233,7 @@ function arrive(id,heading,lat){
 async function warp(){
   if(!ready||state==='warp')return;
   if(overLimit()){if(state==='cruise')endAt=Infinity;return}
-  audioInit();whoosh();
+  audioInit();whoosh();paused=false;syncPause();keepAwake();
   const fromSpace=state==='space';showEarth=fromSpace;
   state='warp';fxOn=true;wt0=performance.now();
   fx.style.transition='none';fx.style.opacity=1;$('#place').textContent='';$('#lm').hidden=true;
@@ -264,40 +271,85 @@ function cam(t,dt){
 function hud(t){
   if(t-hudT<500)return;hudT=t;
   const rem=Math.max(0,(endAt-t)/1000|0),pos=pano.getPosition(),u=usage();
-  const head=endAt===Infinity?'今日の上限に達しました':`次のワープまで ${rem/60|0}:${String(rem%60).padStart(2,'0')}`;
+  const head=paused?'一時停止中':endAt===Infinity?'今日の上限に達しました':`次のワープまで ${rem/60|0}:${String(rem%60).padStart(2,'0')}`;
   $('#hud').textContent=head+`　今日 ${u.n}/${cfg.limit}回`+(pos?`　${pos.lat().toFixed(3)}, ${pos.lng().toFixed(3)}`:'');
 }
 function loop(t){
   const dt=Math.min(100,t-lt);lt=t;
   if(fxOn)draw(t,dt);
-  if(state==='cruise'&&ready){if(t>nextStep)step(t);if(t-lastGeo>40000){lastGeo=t;place();landmarks()}lmUpdate(t);if(t>endAt)warp();cam(t,dt);hud(t)}
+  if(state==='cruise'&&ready){if(!paused&&t>nextStep)step(t);if(t-lastGeo>40000){lastGeo=t;place();landmarks()}lmUpdate(t);if(!paused&&t>endAt)warp();cam(t,dt);hud(t)}
   requestAnimationFrame(loop);
 }
 $('#pano').addEventListener('pointerdown',()=>interact=performance.now());
 $('#pano').addEventListener('wheel',()=>interact=performance.now());
 
 /* ---------- 保存 ---------- */
+function syncPause(){$('#bPause').textContent=paused?'再開 (Space)':'一時停止 (Space)'}
+function togglePause(){
+  if(state!=='cruise')return;
+  const n=performance.now();
+  if(!paused){paused=true;pauseAt=n}
+  else{const d=n-pauseAt;if(isFinite(endAt))endAt+=d;nextStep+=d;paused=false}
+  syncPause();ok(paused?'一時停止しました':'再開しました');
+}
+/* ---------- 画面の消灯防止 ---------- */
+async function keepAwake(){
+  if(!cfg.awake||wl||!('wakeLock' in navigator)||document.visibilityState!=='visible')return;
+  try{wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}catch(e){wl=null}
+}
+function freeAwake(){if(wl){wl.release().catch(()=>{});wl=null}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')keepAwake()});
 function save(){
   if(state!=='cruise'){toast('地球に降りてから保存できます');return}
-  const p=pano.getPosition();
-  saves.unshift({pano:pano.getPano(),lat:p.lat(),lng:p.lng(),h:pano.getPov().heading,t:Date.now()});
-  store(SK,saves);renderList();toast('この地点を保存しました');
+  const p=pano.getPosition(),lm=LM.list[LM.i];
+  saves.unshift({pano:pano.getPano(),lat:p.lat(),lng:p.lng(),h:pano.getPov().heading,t:Date.now(),
+    place:$('#place').textContent||'',lm:lm?lm.title:'',memo:''});
+  store(SK,saves);renderList();toast('この地点を保存しました。「記録」でメモを追加できます');
+}
+async function jump(s){
+  if(overLimit())return;
+  const R={source:google.maps.StreetViewSource.OUTDOOR};let id=null;
+  try{const r=await sv.getPanorama({pano:s.pano});id=r.data.location.pano}catch(e){}
+  if(!id)try{const r=await sv.getPanorama({location:{lat:s.lat,lng:s.lng},radius:300,...R});id=r.data.location.pano}catch(e){}
+  if(!id){toast('この地点の景色を読み込めませんでした');return}
+  arrive(id,s.h,s.lat);closePanels();
 }
 function renderList(){
-  const el=$('#list');el.innerHTML='';
+  const el=$('#list');el.textContent='';
   if(!saves.length){el.textContent='まだ保存した地点はありません。気に入った景色で「保存」を押してください。';return}
   saves.forEach((s,i)=>{
-    const d=document.createElement('div');d.className='item';
-    d.innerHTML=`${new Date(s.t).toLocaleString('ja-JP')}<br>${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}<div></div>`;
-    const row=d.querySelector('div');
-    const go=document.createElement('button');go.textContent='ここへ移動';
-    go.onclick=()=>{if(overLimit())return;arrive(s.pano,s.h,s.lat);closePanels()};
+    const d=document.createElement('div'),t=document.createElement('b'),sub=document.createElement('span'),m=document.createElement('input'),row=document.createElement('div');
+    d.className='item';t.textContent=s.place||`${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+    sub.className='sub';sub.textContent=[s.lm&&`近く：${s.lm}`,new Date(s.t).toLocaleString('ja-JP')].filter(Boolean).join('　');
+    m.placeholder='メモ（例：夕焼けがきれい）';m.maxLength=300;m.value=s.memo||'';
+    m.onchange=()=>{s.memo=m.value;store(SK,saves);ok('メモを保存しました')};
+    const go=document.createElement('button');go.textContent='ここへ移動';go.onclick=()=>jump(s);
     const a=document.createElement('a');a.textContent='地図で開く';a.target='_blank';a.rel='noopener';
-    a.href=`https://www.google.com/maps/@?api=1&map_action=pano&pano=${s.pano}`;
+    a.href=`https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(s.pano)}`;
     const x=document.createElement('button');x.textContent='削除';
     x.onclick=()=>{saves.splice(i,1);store(SK,saves);renderList()};
-    row.append(go,a,x);el.append(d);
+    row.append(go,a,x);d.append(t,sub,m,row);el.append(d);
   });
+}
+function exportSaves(){
+  if(!saves.length){toast('書き出す地点がありません');return}
+  const b=new Blob([JSON.stringify({app:'scout',v:1,saves},null,1)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`scout-saves-${today()}.json`;
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);ok('記録を書き出しました');
+}
+function importSaves(file){
+  const r=new FileReader();
+  r.onload=()=>{try{
+    const j=JSON.parse(r.result),arr=Array.isArray(j)?j:j.saves;let n=0;
+    for(const x of arr||[]){
+      if(!x||typeof x.pano!=='string'||!isFinite(x.lat)||!isFinite(x.lng))continue;
+      if(saves.some(y=>y.pano===x.pano&&y.t===x.t))continue;
+      saves.push({pano:x.pano,lat:+x.lat,lng:+x.lng,h:+x.h||0,t:+x.t||Date.now(),
+        place:String(x.place||'').slice(0,100),lm:String(x.lm||'').slice(0,100),memo:String(x.memo||'').slice(0,300)});n++;
+    }
+    saves.sort((a,b)=>b.t-a.t);store(SK,saves);renderList();ok(`${n} 件を読み込みました`);
+  }catch(e){toast('読み込めないファイルです')}};
+  r.readAsText(file);
 }
 
 /* ---------- 音（Web Audioで生成） ---------- */
@@ -401,7 +453,7 @@ document.querySelectorAll('[data-vol]').forEach(el=>{
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   const k=e.key.toLowerCase();
-  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(k==='escape')closePanels();
+  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(e.key===' '){e.preventDefault();togglePause()}else if(k==='escape')closePanels();
 });
 function boot(){const v=$('#kIn').value.trim();if(!v)return;try{localStorage.setItem(K,v)}catch(e){}
   if(ready){location.reload();return}$('#err').textContent='';loadMaps(v)}
@@ -462,6 +514,13 @@ $('#cNext').onclick=()=>{if(LM.list.length){LM.i=(LM.i+1)%LM.list.length;LM.key=
 $('#cClose').onclick=()=>$('#lmCard').hidden=true;
 $('#bLm').onclick=()=>setLand(!cfg.land);
 $('#cLand').checked=cfg.land;$('#cLand').onchange=e=>setLand(e.target.checked);
+if(cfg.awake===undefined)cfg.awake=true;
+$('#cAwake').checked=cfg.awake&&'wakeLock' in navigator;
+if(!('wakeLock' in navigator)){$('#cAwake').disabled=true;$('#cAwake').parentElement.append('（このブラウザでは非対応）')}
+$('#cAwake').onchange=e=>{cfg.awake=e.target.checked;store(CK,cfg);cfg.awake?keepAwake():freeAwake();ok(cfg.awake?'画面を消灯させません':'画面の消灯を許可しました')};
+$('#bPause').onclick=togglePause;$('#bExp').onclick=exportSaves;$('#bImp').onclick=()=>$('#fImp').click();
+$('#fImp').onchange=e=>{if(e.target.files[0])importSaves(e.target.files[0]);e.target.value=''};
+addEventListener('keyup',e=>{if(e.key===' '&&e.target.tagName!=='INPUT')e.preventDefault()});
 renderList();requestAnimationFrame(loop);
 const saved=localStorage.getItem(K);if(saved)loadMaps(saved);
 </script>
