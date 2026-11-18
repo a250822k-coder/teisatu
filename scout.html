@@ -69,6 +69,8 @@ body.idle #lm{opacity:.5}
 font:12px/1.7 ui-monospace,"SFMono-Regular",Consolas,"Hiragino Sans","Yu Gothic UI",monospace;letter-spacing:.04em;color:var(--ice);
 background:rgba(2,6,16,.5);backdrop-filter:blur(5px);border-left:2px solid var(--amber);padding:8px 14px;max-width:min(380px,85vw);transition:opacity 1s}
 #log .lh{color:var(--amber)}
+#end{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--void);z-index:11;text-align:center}
+#end h1{font-weight:200;letter-spacing:.4em;font-size:22px;margin:0}#end p{margin:0;color:var(--dim)}
 #toast{position:fixed;left:50%;top:calc(56px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:rgba(2,6,16,.8);border:1px solid rgba(255,184,107,.5);
 padding:.5em 1.4em;border-radius:99px;opacity:0;transition:opacity .5s;pointer-events:none;z-index:9;color:var(--amber)}
 #key{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--void);z-index:10;padding:20px}
@@ -97,7 +99,7 @@ border-radius:8px;color:var(--ice);font:inherit}
 <div id="hud" class="ui"></div>
 <div id="bar" class="ui" hidden>
   <button id="bWarp">ワープ (W)</button><button id="bPause">一時停止 (Space)</button><button id="bSave">保存 (S)</button><button id="bList">記録</button>
-  <button id="bLm">ランドマーク (L)</button><button id="bSet">設定</button><button id="bSnd">音 (M)</button><button id="bFs">全画面 (F)</button>
+  <button id="bLm">ランドマーク (L)</button><button id="bSet">設定</button><button id="bSnd">音 (M)</button><button id="bFs">全画面 (F)</button><button id="bHome" hidden>起動画面へ (B)</button><button id="bQuit">終了</button>
 </div>
 
 <section id="pSet" class="panel" hidden>
@@ -106,6 +108,8 @@ border-radius:8px;color:var(--ice);font:inherit}
   <input id="rMin" type="range" min="1" max="30" step="1">
   <label>移動の速さ</label>
   <select id="sStep"><option value="8">とてもゆっくり</option><option value="5">ゆっくり</option><option value="3">ふつう</option></select>
+  <label>ワープ先のテーマ</label>
+  <select id="sTheme"><option value="any">完全ランダム</option><option value="coast">海沿い</option><option value="mountain">山岳</option><option value="desert">砂漠</option><option value="polar">極地・寒冷地</option><option value="city">大都市</option><option value="japan">日本のみ</option></select>
   <label>1日の着地回数の上限：<span id="vLim"></span> 回（今日 <span id="vUse"></span> 回）</label>
   <input id="rLim" type="range" min="10" max="500" step="10">
   <label class="chk"><input type="checkbox" id="cPlace"> 画面上部に地名を表示する</label>
@@ -128,6 +132,7 @@ border-radius:8px;color:var(--ice);font:inherit}
 
 <div id="toast"></div>
 
+<div id="end" hidden><h1>偵察を終了しました</h1><p>このタブは閉じて構いません。</p><button id="bBack">もう一度出発する</button></div>
 <div id="key">
   <div>
     <h1>偵察船</h1>
@@ -248,12 +253,21 @@ function loadMaps(key){
   document.head.append(s);
 }
 function keyErr(m){localStorage.removeItem(K);$('#err').textContent=m;$('#key').hidden=false}
+const WARPS={
+ coast:{n:'海沿い',j:.35,r:30000,p:[[50.2,-5.3],[40.63,14.6],[38.7,-9.4],[36.27,-121.8],[-38.65,143.1],[-34.1,18.4],[20.8,-156.4],[63.5,-19.0],[43.5,16.4],[36.4,25.4],[44.1,9.7],[37.1,-8.4],[48.6,-4.0],[-33.89,151.27],[-36.8,175.5],[7.9,98.3],[-8.6,115.2],[44.6,-124.05],[44.5,-63.9],[-33.05,-71.6],[26.5,127.9],[-28.0,153.4],[-22.97,-43.18],[35.3,139.5]]},
+ mountain:{n:'山岳',j:.4,r:30000,p:[[46.6,8.0],[45.9,6.87],[46.5,11.8],[61.2,7.1],[51.18,-115.57],[39.5,-106.2],[-50.9,-72.9],[28.2,84.0],[34.2,77.6],[42.6,77.0],[42.66,44.64],[-13.5,-72.0],[-16.5,-68.1],[49.2,20.0],[42.7,.1],[-43.7,170.1],[-3.07,37.35],[37.8,-119.5],[36.3,137.7]]},
+ desert:{n:'砂漠',j:.4,r:40000,p:[[38.6,-109.5],[36.98,-110.1],[-24.7,15.3],[-19.98,23.4],[29.6,35.4],[24.9,55.4],[31.1,-4.0],[33.9,8.1],[43.5,104.0],[-22.9,-68.2],[-25.3,131.0],[-29.0,134.75],[36.5,-117.1],[38.0,-117.2],[23.0,57.5],[26.6,37.9],[-22.7,14.5],[-14.1,-75.7],[-26.07,-65.97]]},
+ polar:{n:'極地・寒冷地',j:.4,r:40000,p:[[64.1,-21.9],[65.7,-18.1],[78.2,15.6],[69.65,18.96],[68.2,13.6],[66.5,25.7],[64.8,-147.7],[61.2,-149.9],[60.7,-135.1],[64.2,-51.7],[62.0,-6.8],[-54.8,-68.3],[-53.2,-70.9],[67.85,20.2],[68.97,33.1],[45.4,141.7]]},
+ city:{n:'大都市',j:.1,r:8000,p:[[35.68,139.76],[40.75,-73.99],[51.51,-.12],[48.86,2.35],[37.57,126.98],[13.75,100.5],[1.3,103.85],[-33.87,151.2],[-23.55,-46.63],[19.43,-99.13],[-34.6,-58.38],[41.0,28.97],[22.3,114.17],[25.03,121.56],[52.52,13.4],[40.4,-3.7],[41.9,12.5],[41.88,-87.63],[43.65,-79.38],[34.05,-118.24],[34.69,135.5],[-6.2,106.8],[14.6,120.98],[3.14,101.69],[25.2,55.27],[19.07,72.88]]},
+ japan:{n:'日本のみ',j:.35,r:30000,p:[[35.68,139.76],[34.69,135.5],[35.01,135.77],[43.06,141.35],[33.59,130.4],[35.18,136.9],[38.27,140.87],[34.39,132.46],[36.56,136.65],[26.21,127.68],[41.77,140.73],[33.84,132.77],[36.14,137.25],[31.6,130.56],[36.65,138.19],[37.9,139.02],[40.82,140.74],[36.26,136.9],[30.35,130.5],[43.34,142.38],[36.75,139.6],[35.47,133.05]]}
+};
 async function find(){
+  const W=WARPS[cfg.theme]||null;
   for(let i=0;i<40;i++){
-    const ct=Math.random()<.8?CITIES[Math.random()*CITIES.length|0]:null;
-    const lat=ct?ct[0]+rnd(-1.5,1.5):rnd(-55,68),lng=ct?ct[1]+rnd(-1.5,1.5):rnd(-180,180);
+    const ct=W?W.p[Math.random()*W.p.length|0]:(Math.random()<.8?CITIES[Math.random()*CITIES.length|0]:null),j=W?W.j:1.5;
+    const lat=ct?ct[0]+rnd(-j,j):rnd(-55,68),lng=ct?ct[1]+rnd(-j,j):rnd(-180,180);
     try{
-      const r=await sv.getPanorama({location:{lat,lng},radius:ct?30000:200000,
+      const r=await sv.getPanorama({location:{lat,lng},radius:W?W.r:(ct?30000:200000),
         preference:google.maps.StreetViewPreference.NEAREST,source:google.maps.StreetViewSource.OUTDOOR});
       const d=r.data;
       if(d&&d.location&&d.location.pano&&/Google/.test(d.copyright||''))return{id:d.location.pano,lat:d.location.latLng.lat(),lng:d.location.latLng.lng()};
@@ -267,24 +281,36 @@ function blip(){
   if(!AC)return;const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.frequency.value=1500;
   g.gain.setValueAtTime(.12,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);o.connect(g);g.connect(bus.sfx);o.start(t);o.stop(t+.06);
 }
+function trace(lat){
+  if(!cfg.land)return{a:'判定保留（近傍スキャン停止中）',b:'近傍データがなく、活動の規模は不明。'};
+  const L=[...LM.list].sort((x,y)=>x.d-y.d),dm=L.length?L[0].d:1e9,lv=L.length&&dm<800?3:L.length&&dm<3000?2:L.length?1:0;
+  const z=Math.abs(lat)>55?0:Math.abs(lat)<23?1:2;
+  const T=[['極寒の無人域。観測対象は気象のみ。','密林か洋上か。活動の痕跡は見当たらない。','人の気配は薄い。静かな自然域と推定。'],
+    ['少数の拠点を確認。過酷な環境に適応している。','小規模な集落の可能性。活動は穏やか。','点在する居住の痕跡。生活圏の端と推定。'],
+    ['寒冷地に根づく居住圏。防寒技術は高度。','温暖な居住圏。活動は活発と推定。','安定した居住圏。文化的な施設が複数ある。'],
+    ['極地とは思えない密度の構造物。要注意。','高密度の居住圏。多様な活動を確認。','高度に発達した居住圏。象徴的な構造物を確認。']];
+  return{a:['ほぼ検出されず','散発的','確認','濃厚'][lv]+(lv>=2?`（${L[0].title}付近）`:''),b:T[lv][z]+'（推定）'};
+}
 async function scoutLog(lat,lng,vn){
   const el=$('#log'),tok=++logTok;LOGREG='';LOGROW=null;LOGDONE=false;
   if(!cfg.log){el.hidden=true;return}
   el.textContent='';el.style.opacity=0;el.hidden=false;
   await sleep(700);if(tok!==logTok)return;el.style.opacity=1;
   const off=Math.round(lng/15),d=new Date(Date.now()+off*3600e3),p2=n=>String(n).padStart(2,'0');
-  const zone=Math.abs(lat)>55?'極地帯':Math.abs(lat)<23?'熱帯':'温帯';
+  const zone=Math.abs(lat)>55?'極地帯':Math.abs(lat)<23?'熱帯':'温帯',WT=WARPS[cfg.theme]||null;
   const lines=[
     ['SCOUT-01　着地シーケンス完了','lh'],
     [`座標　 ${Math.abs(lat).toFixed(4)}°${lat>=0?'N':'S'}　${Math.abs(lng).toFixed(4)}°${lng>=0?'E':'W'}`],
     [LOGREG?`領域　 ${LOGREG}`:'領域　 解析中…','reg'],
     [`推定地方時　 ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}（UTC${off>=0?'+':''}${off}）`],
     [`気候帯　 ${zone}（緯度から推定）`],
+    ...(WT?[[`偵察指針　 ${WT.n}`]]:[]),
     [vn>1?`履歴　 既知の領域（${vn}回目の着地）`:'履歴　 未踏領域。新規に記録'],
+    [()=>'知的生命体の痕跡　 '+trace(lat).a],[()=>'所見　 '+trace(lat).b],
     [`本日の偵察　 ${usage().n} / ${cfg.limit} 回`]
   ];
-  for(const [txt,tag] of lines){
-    if(tok!==logTok)return;
+  for(const [t0,tag] of lines){
+    if(tok!==logTok)return;const txt=typeof t0==='function'?t0():t0;
     const row=document.createElement('div');row.className='lr'+(tag==='lh'?' lh':'');el.append(row);
     if(tag==='reg')LOGROW=row;
     blip();
@@ -295,6 +321,25 @@ async function scoutLog(lat,lng,vn){
   await sleep(6500);if(tok!==logTok)return;
   el.style.opacity=0;await sleep(1000);if(tok===logTok)el.hidden=true;
 }
+function goHome(instant){
+  if(state!=='cruise'&&!instant)return;
+  logTok++;lmReq++;LM={list:[],i:0,key:''};
+  for(const q of['#log','#lm','#lmCard'])$(q).hidden=true;
+  $('#place').textContent='';$('#hud').textContent='';closePanels();
+  paused=false;syncPause();freeAwake();
+  state='space';showEarth=true;fxOn=true;
+  fx.style.transition=instant?'none':'opacity 1.4s';fx.style.opacity=1;
+  setTimeout(()=>{if(state==='space'||state==='ended')pano.setVisible(false)},instant?0:1500);
+  if(AC){const t=AC.currentTime;for(const k of['wind','rain','waves','ins'])AL[k].gain.setTargetAtTime(0,t,1.2)}
+  $('#intro').hidden=false;
+}
+function endMission(){
+  if(!confirm('偵察を終了しますか？'))return;
+  if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+  goHome(true);state='ended';pano.setVisible(false);freeAwake();if(AC)AC.suspend();
+  $('#intro').hidden=true;$('#end').hidden=false;
+  try{window.close()}catch(e){}
+}
 function setLog(v){cfg.log=v;store(CK,cfg);$('#cLog').checked=v;if(!v){logTok++;$('#log').hidden=true}ok(v?'着地時に偵察ログを表示します':'偵察ログを表示しません')}
 function arrive(id,heading,lat,lng){
   paused=false;syncPause();keepAwake();scoutLog(lat,lng,addVisit(lat,lng));
@@ -303,11 +348,11 @@ function arrive(id,heading,lat,lng){
   pano.setPano(id);pano.setVisible(true);
   dir=heading??rnd(0,360);pano.setPov({heading:dir,pitch:2});
   const now=performance.now();nextStep=now+3500;endAt=now+cfg.min*60000;lastLat=lat;
-  setTheme(lat);place();LM={list:[],i:0,key:''};landmarks();lastGeo=performance.now();state='cruise';showEarth=false;
+  setTheme(lat);place(lat,lng);LM={list:[],i:0,key:''};landmarks(lat,lng);lastGeo=performance.now();state='cruise';showEarth=false;
   fx.style.opacity=0;fxOn=false;$('#intro').hidden=true;
 }
 async function warp(){
-  if(!ready||state==='warp')return;
+  if(!ready||state==='warp'||state==='ended')return;
   if(overLimit()){if(state==='cruise')endAt=Infinity;return}
   audioInit();whoosh();paused=false;syncPause();keepAwake();
   const fromSpace=state==='space';showEarth=fromSpace;
@@ -320,11 +365,13 @@ async function warp(){
   fx.style.transition='none';arrive(r.id,null,r.lat,r.lng);
   await sleep(50);fl.style.transition='opacity 1.8s';fl.style.opacity=0;
 }
-let geo,lastGeo=0,geoWarned=false;
-async function place(){
-  if(!cfg.place){setReg('（地名表示オフ）');return}if(!pano)return;const pos=pano.getPosition();if(!pos)return;
+let geo,lastGeo=0,geoWarned=false,geoTok=0;
+async function place(la,ln){
+  if(!cfg.place){setReg('（地名表示オフ）');return}if(!pano)return;
+  let pos;if(la!=null)pos={lat:()=>la,lng:()=>ln};else{const q=pano.getPosition();if(!q)return;pos=q}
+  const gt=++geoTok;
   try{
-    geo=geo||new google.maps.Geocoder();const r=await geo.geocode({location:pos}),m={};
+    geo=geo||new google.maps.Geocoder();const r=await geo.geocode({location:{lat:pos.lat(),lng:pos.lng()}}),m={};if(gt!==geoTok)return;
     for(const x of r.results)for(const a of x.address_components)for(const ty of a.types)if(!m[ty])m[ty]=a.long_name;
     const parts=[...new Set([m.country,m.administrative_area_level_1,m.locality||m.administrative_area_level_2||m.sublocality_level_1].filter(Boolean))];
     $('#place').textContent=parts.length?parts.join('　'):'未知の領域';tagVisit(pos.lat(),pos.lng(),parts[0]);setReg($('#place').textContent);
@@ -351,7 +398,7 @@ function hud(t){
   $('#hud').textContent=head+`　今日 ${u.n}/${cfg.limit}回`+(pos?`　${pos.lat().toFixed(3)}, ${pos.lng().toFixed(3)}`:'');
 }
 function loop(t){
-  const dt=Math.min(100,t-lt);lt=t;
+  const dt=Math.min(100,t-lt);lt=t;bHome.hidden=state!=='cruise';
   if(fxOn)draw(t,dt);
   if(state==='cruise'&&ready){if(!paused&&t>nextStep)step(t);if(t-lastGeo>40000){lastGeo=t;place();landmarks()}lmUpdate(t);if(!paused&&t>endAt)warp();cam(t,dt);hud(t)}
   requestAnimationFrame(loop);
@@ -520,6 +567,8 @@ $('#rLim').onchange=()=>ok(`1日の上限を ${cfg.limit} 回にしました`);
 $('#sStep').onchange=e=>{cfg.step=+e.target.value;store(CK,cfg);ok(`移動の速さを「${e.target.selectedOptions[0].text}」にしました`)};
 $('#cPlace').checked=cfg.place;$('#place').hidden=!cfg.place;
 $('#cPlace').onchange=e=>{cfg.place=e.target.checked;store(CK,cfg);$('#place').hidden=!cfg.place;if(cfg.place&&state==='cruise')place();ok(cfg.place?'地名を表示します':'地名を非表示にしました')};
+if(!cfg.theme)cfg.theme='any';$('#sTheme').value=cfg.theme;
+$('#sTheme').onchange=e=>{cfg.theme=e.target.value;store(CK,cfg);ok(`次のワープから「${e.target.selectedOptions[0].text}」を目指します`)};
 const VN={master:'全体の音量',env:'環境音の音量',bgm:'BGMの音量',warp:'ワープ音の音量'};
 document.querySelectorAll('[data-vol]').forEach(el=>{
   const k=el.dataset.vol;el.value=Math.round(cfg.vol[k]*100);
@@ -529,7 +578,7 @@ document.querySelectorAll('[data-vol]').forEach(el=>{
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   const k=e.key.toLowerCase();
-  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(e.key===' '){e.preventDefault();togglePause()}else if(k==='r')setLog(!cfg.log);else if(k==='escape')closePanels();
+  if(k==='w')warp();else if(k==='s')save();else if(k==='f')fs();else if(k==='m')toggleSound();else if(k==='l')setLand(!cfg.land);else if(e.key===' '){e.preventDefault();togglePause()}else if(k==='r')setLog(!cfg.log);else if(k==='b')goHome();else if(k==='escape')closePanels();
 });
 function boot(){const v=$('#kIn').value.trim();if(!v)return;try{localStorage.setItem(K,v)}catch(e){}
   if(ready){location.reload();return}$('#err').textContent='';loadMaps(v)}
@@ -538,9 +587,9 @@ $('#kOk').onclick=boot;$('#kIn').onkeydown=e=>{if(e.key==='Enter')boot()};
 let LM={list:[],i:0,key:''},lmReq=0;
 const BAD=/駅|学校|小学|中学|高校|交差点|バス停|郵便局|支店|警察|消防|病院|医院|クリニック|変電所|Station|School|Elementary|High School|Post Office|Hospital|Clinic/i;
 const hav=(a,b,c,d)=>{const r=Math.PI/180,x=Math.sin((c-a)*r/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin((d-b)*r/2)**2;return 12742e3*Math.asin(Math.sqrt(x))};
-async function landmarks(){
-  if(!cfg.land||!pano)return;const pos=pano.getPosition();if(!pos)return;
-  const tag=++lmReq,la=pos.lat(),ln=pos.lng();
+async function landmarks(la0,ln0){
+  if(!cfg.land||!pano)return;let la=la0,ln=ln0;if(la==null){const pos=pano.getPosition();if(!pos)return;la=pos.lat();ln=pos.lng()}
+  const tag=++lmReq;
   for(const lang of['ja','en'])for(const rad of[2500,9000]){
     let list=[];
     try{
@@ -603,6 +652,9 @@ addEventListener('pointerdown',e=>{if(state!=='space'||!ready||e.target.closest(
 addEventListener('pointermove',e=>{if(!drag)return;rot-=(e.clientX-dx0)*.006;tilt=Math.max(-1,Math.min(1,tilt+(e.clientY-dy0)*.004));dx0=e.clientX;dy0=e.clientY});
 addEventListener('pointerup',()=>drag=false);addEventListener('pointercancel',()=>drag=false);
 if(cfg.log===undefined)cfg.log=true;$('#cLog').checked=cfg.log;$('#cLog').onchange=e=>setLog(e.target.checked);
+const bHome=$('#bHome');
+$('#bHome').onclick=()=>goHome();$('#bQuit').onclick=endMission;
+$('#bBack').onclick=()=>{$('#end').hidden=true;if(AC)AC.resume();state='space';showEarth=true;fxOn=true;$('#intro').hidden=false};
 renderVisits();renderList();requestAnimationFrame(loop);
 const saved=localStorage.getItem(K);if(saved)loadMaps(saved);
 </script>
